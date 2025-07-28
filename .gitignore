@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.venv/
+*.env
+*.ipynb_checkpoints/
+
+# MAC
+*.DS_Store
+
+# LOG    
+*.log
+
+# Temporary files
+*.tmp
+*.bak   
