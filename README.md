@@ -84,15 +84,19 @@ results = analyzer.analyze_reviews(reviews)
 
 ## Configuration
 
-You can provide your Amazon credentials in two ways:
+You can provide your credentials in two ways:
 
 ### Option 1: Environment Variables (Recommended)
 
 Create a `.env` file in the project root directory with the following variables:
 
 ```
+# Amazon credentials
 AMAZON_EMAIL=your-email@example.com
 AMAZON_PASSWORD=your-password
+
+# SerpApi credentials
+SERPAPI_KEY=your-serpapi-key
 ```
 
 A template file `.env.template` is provided for reference. Copy this file to `.env` and add your credentials:
@@ -110,6 +114,9 @@ Alternatively, you can place your Amazon credentials in `config/credentials.json
   "amazon": {
     "email": "your-email@example.com",
     "password": "your-password"
+  },
+  "serpapi": {
+    "key": "your-serpapi-key"
   }
 }
 ```

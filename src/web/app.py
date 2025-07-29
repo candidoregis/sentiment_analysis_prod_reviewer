@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 # Import from the new directory structure using absolute imports
 from src.scraper.amazon_review_scraper import AmazonReviewScraper
 from src.models.model_integration import SentimentAnalyzer
+from src.api.serp_api_integration import get_product_alternatives
 
 # Initialize the sentiment analyzer
 analyzer = SentimentAnalyzer()
@@ -40,9 +41,10 @@ def predict_sentiment_from_reviews(reviews):
     
     return sentiment, score, pos_count, neg_count, results['detailed_results'], model_name
 
-# Placeholder for future e-commerce search function
+# E-commerce search function using SerpApi
 def search_ecommerce(product_link, sentiment):
-    # To be implemented in future updates
+    # This function is kept for backward compatibility
+    # The actual implementation is now in serp_api_integration.py
     return []
 
 # Set page config for custom title and icon
@@ -169,10 +171,43 @@ if link:
         st.write(f"Review Text: {result['review']}")
         st.markdown("---")
 
-    # Placeholder for future product recommendation feature
+    # Product recommendations using SerpApi
     st.markdown("---")
-    st.subheader("\U0001F4A1 Future Feature: Product Recommendations")
-    st.info("Product recommendations will be available in a future update.")
+    st.subheader("\U0001F4A1 Product Recommendations")
+    if sentiment == "positive":
+        st.success("This product is recommended! Here are some similar options:")
+    else:
+        st.warning("This product may not be ideal. Consider these alternatives:")
+        
+    # Get product title from the first review or fallback
+    raw_title = reviews[0].get('product_title', '') if reviews and 'product_title' in reviews[0] else "Amazon Product"
+    
+    # Simplify the product title (take first part before colon, dash, or parenthesis)
+    match = re.split(r'[:\-\(]', raw_title)
+    simple_title = match[0].strip() if match else raw_title.strip()
+    if not simple_title:
+        simple_title = "Apple iPad"
+        
+    # Get product alternatives using SerpApi
+    alternatives = get_product_alternatives(simple_title)
+    
+    # Fallback: try a generic query if no results
+    if not alternatives:
+        fallback_title = "Apple iPad"
+        st.write(f"No results found. Trying with fallback title: {fallback_title}")
+        alternatives = get_product_alternatives(fallback_title)
+        
+    # Display results
+    if alternatives:
+        df = pd.DataFrame(alternatives)
+        # Format the link column as markdown links
+        df['link'] = df['link'].apply(lambda x: f"[Link]({x})")
+        # Select and reorder columns for display
+        display_cols = ['title', 'price', 'source', 'rating', 'reviews', 'link']
+        display_cols = [col for col in display_cols if col in df.columns]
+        st.write(df[display_cols].to_markdown(index=False), unsafe_allow_html=True)
+    else:
+        st.info("No alternative products found.")
 
 st.markdown("---")
 
