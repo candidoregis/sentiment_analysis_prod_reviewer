@@ -16,10 +16,8 @@ import sys
 import time
 from datetime import datetime
 from urllib.parse import urlparse
-
-# Import credentials manager
-from credentials_manager import load_credentials
-
+import pandas as pd
+import requests
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -27,21 +25,37 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException
 from webdriver_manager.chrome import ChromeDriverManager
-import platform
 
+# Import credentials manager from utils
+from src.utils.credentials_manager import load_credentials, save_credentials
+
+# Helper function to get debug file paths
+def debug_get_file_path(filename):
+    """Returns the path to a debug file in the debug directory"""
+    debug_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')), 'debug')
+    # Create debug directory if it doesn't exist
+    if not os.path.exists(debug_dir):
+        os.makedirs(debug_dir)
+    return os.path.join(debug_dir, filename)
 
 class AmazonReviewScraper:
     """Scraper for Amazon product reviews with improved anti-detection."""
     
-    def __init__(self, headless=True, email=None, password=None, credentials_file="credentials.json"):
+    def __init__(self, headless=True, email=None, password=None, credentials_file=None):
         """Initialize the Amazon scraper with anti-bot detection measures."""
         self.options = Options()
-        self.credentials_file = credentials_file
+        
+        # Set default credentials file path in the config directory
+        if credentials_file is None:
+            self.credentials_file = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')), 'config', 'credentials.json')
+        else:
+            self.credentials_file = credentials_file
         
         # Try to load credentials from file if not provided
         if not email or not password:
-            loaded_email, loaded_password = load_credentials(site="amazon", credentials_file=credentials_file)
+            loaded_email, loaded_password = load_credentials(site="amazon", credentials_file=self.credentials_file)
             self.email = email or loaded_email
             self.password = password or loaded_password
         else:
@@ -116,10 +130,14 @@ class AmazonReviewScraper:
         print(f"Waiting {delay:.2f} seconds between requests...")
         time.sleep(delay)
     
-    def load_cookies(self, cookie_file="amazon_cookies.json"):
+    def debug_load_cookies(self, cookie_file=None):
         """Load cookies from a file if it exists."""
         if not self.driver:
             return False
+        
+        # Use config directory for cookie file if not specified
+        if cookie_file is None:
+            cookie_file = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')), 'config', 'amazon_cookies.json')
             
         if os.path.exists(cookie_file):
             try:
@@ -136,9 +154,12 @@ class AmazonReviewScraper:
                 print(f"Error loading cookies: {e}")
         return False
     
-    def save_cookies(self, cookie_file="amazon_cookies.json"):
+    def debug_save_cookies(self, cookie_file=None):
         """Save cookies to a file for later use."""
         if self.driver:
+            # Use config directory for cookie file if not specified
+            if cookie_file is None:
+                cookie_file = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')), 'config', 'amazon_cookies.json')
             try:
                 cookies = self.driver.get_cookies()
                 with open(cookie_file, "w") as f:
@@ -186,7 +207,7 @@ class AmazonReviewScraper:
                 
                 # Take screenshot for debugging
                 try:
-                    screenshot_path = "login_screen.png"
+                    screenshot_path = debug_get_file_path("login_screen.png")
                     self.driver.save_screenshot(screenshot_path)
                     print(f"Login screen screenshot saved to {screenshot_path}")
                 except Exception as e:
@@ -194,7 +215,7 @@ class AmazonReviewScraper:
                 
                 # Save initial login page HTML for debugging
                 try:
-                    with open("login_page_initial.html", "w", encoding="utf-8") as f:
+                    with open(debug_get_file_path("login_page_initial.html"), "w", encoding="utf-8") as f:
                         f.write(self.driver.page_source)
                     print("Saved initial login page HTML for debugging")
                 except Exception as e:
@@ -256,8 +277,8 @@ class AmazonReviewScraper:
                     
                     # Save HTML after clicking continue
                     try:
-                        self.driver.save_screenshot("after_continue_click.png")
-                        with open("after_continue_click.html", "w", encoding="utf-8") as f:
+                        self.driver.save_screenshot(debug_get_file_path("after_continue_click.png"))
+                        with open(debug_get_file_path("after_continue_click.html"), "w", encoding="utf-8") as f:
                             f.write(self.driver.page_source)
                         print("Saved HTML after clicking continue button")
                     except Exception as e:
@@ -275,7 +296,7 @@ class AmazonReviewScraper:
                     print("CAPTCHA detected after email step! Cannot proceed in headless mode.")
                     print("Please use interactive_review_scraper.py instead.")
                     try:
-                        self.driver.save_screenshot("captcha_detected.png")
+                        self.driver.save_screenshot(debug_get_file_path("captcha_detected.png"))
                         print("Screenshot saved to captcha_detected.png")
                     except Exception:
                         pass
@@ -357,7 +378,7 @@ class AmazonReviewScraper:
                     print("CAPTCHA detected! Cannot proceed in headless mode.")
                     print("Please use interactive_review_scraper.py instead.")
                     try:
-                        self.driver.save_screenshot("captcha_detected.png")
+                        self.driver.save_screenshot(debug_get_file_path("captcha_detected.png"))
                         print("Screenshot saved to captcha_detected.png")
                     except Exception:
                         pass
@@ -365,7 +386,7 @@ class AmazonReviewScraper:
                 
                 # Save HTML for debugging
                 try:
-                    with open("login_page_final.html", "w", encoding="utf-8") as f:
+                    with open(debug_get_file_path("login_page_final.html"), "w", encoding="utf-8") as f:
                         f.write(self.driver.page_source)
                     print("Saved final login page HTML for debugging")
                 except Exception as e:
@@ -445,7 +466,10 @@ class AmazonReviewScraper:
             asin = re.search(r'/dp/([A-Z0-9]{10})', url)
             if asin:
                 asin = asin.group(1)
-                url = f"https://www.amazon.com/product-reviews/{asin}/"
+                # Extract the domain from the original URL
+                parsed_url = urlparse(url)
+                domain = parsed_url.netloc
+                url = f"https://{domain}/product-reviews/{asin}/"
                 print(f"Converted to reviews URL: {url}")
         
         try:
@@ -461,7 +485,7 @@ class AmazonReviewScraper:
             
             # Save cookies for future use
             try:
-                self.save_cookies()
+                self.debug_save_cookies()
             except Exception as e:
                 print(f"Could not save cookies: {e}")
             
@@ -536,13 +560,13 @@ class AmazonReviewScraper:
                 print("Warning: Timeout waiting for reviews to load with any selector")
                 # Save the HTML for debugging
                 try:
-                    debug_html_path = "debug_reviews_page.html"
+                    debug_html_path = debug_get_file_path("debug_reviews_page.html")
                     with open(debug_html_path, "w", encoding="utf-8") as f:
                         f.write(self.driver.page_source)
                     print(f"Saved debug HTML to {debug_html_path}")
                     
                     # Take a screenshot for debugging
-                    screenshot_path = "debug_reviews_page.png"
+                    screenshot_path = debug_get_file_path("debug_reviews_page.png")
                     self.driver.save_screenshot(screenshot_path)
                     print(f"Saved screenshot to {screenshot_path}")
                 except Exception as e:
@@ -755,12 +779,12 @@ class AmazonReviewScraper:
             try:
                 # Check if driver is still available
                 if self.driver:
-                    debug_html_path = "error_page.html"
+                    debug_html_path = debug_get_file_path("error_page.html")
                     with open(debug_html_path, "w", encoding="utf-8") as f:
                         f.write(self.driver.page_source)
                     print(f"Saved error page HTML to {debug_html_path}")
                     
-                    screenshot_path = "error_page.png"
+                    screenshot_path = debug_get_file_path("error_page.png")
                     self.driver.save_screenshot(screenshot_path)
                     print(f"Saved error screenshot to {screenshot_path}")
                 else:
@@ -784,7 +808,7 @@ class AmazonReviewScraper:
             self.driver.execute_script(f"window.scrollTo(0, {total_height * i / 10});")
             time.sleep(random.uniform(0.1, 0.3))
     
-    def save_reviews(self, reviews, output_format='csv', output_file=None):
+    def export_reviews(self, reviews, output_format='csv', output_file=None):
         """Save reviews to a file in the specified format."""
         if not reviews:
             print("No reviews to save.")
@@ -852,7 +876,7 @@ def main():
         scraper.close_browser()
         
         if reviews:
-            scraper.save_reviews(reviews, args.format, args.output)
+            scraper.export_reviews(reviews, args.format, args.output)
         else:
             print("No reviews found.")
         

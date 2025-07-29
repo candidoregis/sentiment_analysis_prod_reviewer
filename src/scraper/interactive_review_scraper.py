@@ -631,7 +631,7 @@ def main():
         
         # Save reviews
         if reviews:
-            scraper.save_reviews(reviews, args.format, args.output)
+            scraper.export_reviews(reviews, args.format, args.output)
         else:
             print("No reviews found.")
         
