@@ -11,7 +11,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 # Import from the new directory structure using absolute imports
 from src.scraper.amazon_review_scraper import AmazonReviewScraper
 from src.models.model_integration import SentimentAnalyzer
-from src.utils.selenium_integration import get_cheaper_alternatives
 
 # Initialize the sentiment analyzer
 analyzer = SentimentAnalyzer()
@@ -41,9 +40,9 @@ def predict_sentiment_from_reviews(reviews):
     
     return sentiment, score, pos_count, neg_count, results['detailed_results'], model_name
 
-# Dummy e-commerce search function (replace with real API calls)
+# Placeholder for future e-commerce search function
 def search_ecommerce(product_link, sentiment):
-    # Deprecated: replaced by SerpApi integration
+    # To be implemented in future updates
     return []
 
 # Set page config for custom title and icon
@@ -170,36 +169,10 @@ if link:
         st.write(f"Review Text: {result['review']}")
         st.markdown("---")
 
-    # Suggestions
+    # Placeholder for future product recommendation feature
     st.markdown("---")
-    st.subheader("\U0001F4A1 Suggestions")
-    if sentiment == "positive":
-        st.success("This product is recommended! Here are some cheaper options:")
-    else:
-        st.warning("This product may not be ideal. Consider these alternatives:")
-
-    # Get product title from the first review or fallback
-    raw_title = reviews[0].get('product_title', '') if reviews and 'product_title' in reviews[0] else "Amazon Product"
-    # Simplify the product title (take first part before colon, dash, or parenthesis)
-    match = re.split(r'[:\-\(]', raw_title)
-    simple_title = match[0].strip() if match else raw_title.strip()
-    if not simple_title:
-        simple_title = "Apple iPad"
-    st.write(f"**[DEBUG] Querying SerpApi with title:** {simple_title}")
-    # Get real alternatives from SerpApi
-    alternatives = get_cheaper_alternatives(simple_title)
-    # Fallback: try a generic query if no results
-    if not alternatives:
-        fallback_title = "Apple iPad"
-        st.write(f"**[DEBUG] No results, retrying with fallback title:** {fallback_title}")
-        alternatives = get_cheaper_alternatives(fallback_title)
-    df = pd.DataFrame(alternatives)
-    st.subheader("\U0001F6CD\uFE0F Shopping Results")
-    if not df.empty:
-        df['link'] = df['link'].apply(lambda x: f"[Link]({x})")
-        st.write(df.to_markdown(index=False), unsafe_allow_html=True)
-    else:
-        st.info("No alternative links found.")
+    st.subheader("\U0001F4A1 Future Feature: Product Recommendations")
+    st.info("Product recommendations will be available in a future update.")
 
 st.markdown("---")
 
