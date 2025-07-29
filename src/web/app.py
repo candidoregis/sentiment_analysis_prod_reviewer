@@ -4,14 +4,22 @@ import plotly.express as px
 import sys
 import os
 import re
+import time
+import random
+from datetime import datetime
 
 # Add the project root to sys.path for imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))) 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+# Create output directory for saved data if it doesn't exist
+OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../output/data'))
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Import from the new directory structure using absolute imports
 from src.scraper.amazon_review_scraper import AmazonReviewScraper
+from src.scraper.amazon_price_extractor import extract_price
 from src.models.model_integration import SentimentAnalyzer
-from src.api.serp_api_integration import get_product_alternatives
+from src.api.serp_api_integration import get_exact_and_alternative_products
 
 # Initialize the sentiment analyzer
 analyzer = SentimentAnalyzer()
@@ -115,6 +123,14 @@ st.markdown("---")
 link = st.text_input("Enter product link:", key="product_link")
 
 if link:
+    # Extract product price first (silently, without displaying)
+    try:
+        product_price = extract_price(link)
+    except Exception as e:
+        print(f"Could not extract product price: {e}")
+        product_price = None
+    
+    # Then scrape reviews
     with st.spinner("Scraping Amazon reviews (up to 5 pages)..."):
         try:
             scraper = AmazonReviewScraper(headless=True)
@@ -153,34 +169,26 @@ if link:
     if 'sentiment_score' in st.session_state:
         st.plotly_chart(st.session_state['sentiment_score'], use_container_width=True)
     
-    # Show detailed results with confidence scores
-    st.subheader("🔍 Detailed Review Analysis")
-    for i, result in enumerate(detailed_results):
-        sentiment_emoji = ':smile:' if result['sentiment'] == 'positive' else ':disappointed:'
-        strength = result.get('sentiment_strength', 'moderate')
-        strength_color = {
-            'strong': 'green' if result['sentiment'] == 'positive' else 'red',
-            'moderate': 'orange',
-            'weak': 'gray'
-        }.get(strength, 'blue')
-        
-        st.markdown(f"**Review {i+1}:** {sentiment_emoji} {result['sentiment'].capitalize()} ")
-        st.markdown(f"**Confidence:** <span style='color:{strength_color}'>{result['confidence']:.2f} ({strength})</span>", unsafe_allow_html=True)
-        st.write(f"Rating: {result['rating']}")
-        st.write(f"Helpful Votes: {result['helpful_votes']}")
-        st.write(f"Review Text: {result['review']}")
-        st.markdown("---")
-
     # Product recommendations using SerpApi
     st.markdown("---")
     st.subheader("\U0001F4A1 Product Recommendations")
+    
+    # Determine how many products to display based on sentiment
+    max_exact = 10  # Request more results to have more options for filtering
+    max_alternatives = 10
+    
     if sentiment == "positive":
-        st.success("This product is recommended! Here are some similar options:")
+        st.success(f"This product is recommended! Here's the best value similar option:")
+        display_max = 1  # Only show 1 result for positive sentiment
     else:
-        st.warning("This product may not be ideal. Consider these alternatives:")
+        st.warning(f"This product may not be ideal. Consider these alternatives:")
+        display_max = 5  # Show up to 5 results for negative sentiment
         
     # Get product title from the first review or fallback
     raw_title = reviews[0].get('product_title', '') if reviews and 'product_title' in reviews[0] else "Amazon Product"
+    
+    # Note: product_price is already extracted earlier in the code
+    # We don't need to extract it from reviews anymore
     
     # Simplify the product title (take first part before colon, dash, or parenthesis)
     match = re.split(r'[:\-\(]', raw_title)
@@ -188,48 +196,166 @@ if link:
     if not simple_title:
         simple_title = "Apple iPad"
         
-    # Get product alternatives using SerpApi
-    alternatives = get_product_alternatives(simple_title)
+    # Get both exact matches and alternatives using our new function
+    with st.spinner("Searching for product alternatives..."):
+        exact_matches, alternatives = get_exact_and_alternative_products(simple_title, max_exact=max_exact, max_alternatives=max_alternatives)
+        
+        # No CSV saving here - will save after processing
     
     # Fallback: try a generic query if no results
-    if not alternatives:
-        fallback_title = "Apple iPad"
+    if not exact_matches and not alternatives:
+        fallback_title = simple_title.split()[0] if simple_title else "product"
         st.write(f"No results found. Trying with fallback title: {fallback_title}")
-        alternatives = get_product_alternatives(fallback_title)
+        exact_matches, alternatives = get_exact_and_alternative_products(
+            fallback_title, max_exact=max_exact, max_alternatives=max_alternatives
+        )
+    
+    # Helper function to convert price strings to float
+    def extract_price_float(product):
+        if 'price' in product and product['price']:
+            try:
+                # Clean the price string and convert to float
+                price_str = product['price'].replace('$', '').replace(',', '').strip()
+                return float(price_str)
+            except (ValueError, TypeError):
+                return None
+        return None
+    
+    # Process exact matches - convert prices to float
+    for product in exact_matches:
+        product['price_float'] = extract_price_float(product)
+    
+    # Process alternatives - convert prices to float
+    for product in alternatives:
+        product['price_float'] = extract_price_float(product)
+    
+    # Final products to display
+    display_products = []
+    
+    # Apply different filtering logic based on sentiment
+    if sentiment == "positive":
+        # For positive sentiment: show the cheapest exact match
+        if exact_matches and product_price is not None:
+            # Filter exact matches with valid prices
+            valid_price_products = [p for p in exact_matches if p.get('price_float') is not None]
+            
+            if valid_price_products:
+                # Sort by price (cheapest first)
+                cheapest_products = sorted(valid_price_products, key=lambda x: x['price_float'])
+                # Take the cheapest one
+                display_products = [cheapest_products[0]]
+                st.info(f"Showing the cheapest exact match: ${cheapest_products[0]['price_float']:.2f}")
+            else:
+                # If no products with valid prices, just take the first one
+                display_products = [exact_matches[0]]
+        elif exact_matches:
+            # If we have exact matches but no product price, just take the first one
+            display_products = [exact_matches[0]]
+        elif alternatives:
+            # If no exact matches but we have alternatives, take the first alternative
+            display_products = [alternatives[0]]
+    else:  # negative sentiment
+        # For negative sentiment: select 5 items from alternatives with prices closest to original
+        if alternatives and product_price is not None:
+            # Filter alternatives with valid price information
+            valid_price_alternatives = [alt for alt in alternatives if alt.get('price_float') is not None]
+            
+            if valid_price_alternatives:
+                # Calculate price difference from original product for each alternative
+                for alt in valid_price_alternatives:
+                    alt['price_diff'] = abs(alt['price_float'] - product_price)
+                
+                # Sort alternatives by price difference (closest first)
+                closest_price_alternatives = sorted(valid_price_alternatives, key=lambda x: x['price_diff'])
+                
+                # Take the 5 closest matches
+                display_products = closest_price_alternatives[:display_max]
+                
+                st.info(f"Showing {len(display_products)} alternatives with prices closest to the original (${product_price:.2f}).")
+            else:
+                # If no alternatives with valid prices, just take the first few alternatives
+                display_products = alternatives[:display_max]
+                st.info(f"Showing alternatives (price comparison not available).")
+        elif alternatives:
+            # If we have alternatives but no product price, just take the first few
+            display_products = alternatives[:display_max]
+        elif exact_matches:
+            # If no alternatives but we have exact matches, use those
+            display_products = exact_matches[:display_max]
+    
+    # If we still don't have any products to display, use a combination of both lists
+    if not display_products:
+        combined = exact_matches + alternatives
+        display_products = combined[:display_max]
         
     # Display results
-    if alternatives:
-        df = pd.DataFrame(alternatives)
-        # Format the link column as markdown links
-        df['link'] = df['link'].apply(lambda x: f"[Link]({x})")
+    if display_products:
+        df = pd.DataFrame(display_products)
+        
+        # Handle missing links
+        for i, product in enumerate(display_products):
+            if 'link' not in product or not product['link']:
+                # If no link, indicate that no link is available
+                product['link'] = "No link available"
+                df.at[i, 'link'] = product['link']
+        
+        # Format the link column as clickable markdown links only for valid links
+        if 'link' in df.columns:
+            df['link'] = df['link'].apply(lambda x: f"[View Product]({x})" if x and x != "No link available" else "No link available")
+        
         # Select and reorder columns for display
         display_cols = ['title', 'price', 'source', 'rating', 'reviews', 'link']
         display_cols = [col for col in display_cols if col in df.columns]
-        st.write(df[display_cols].to_markdown(index=False), unsafe_allow_html=True)
+        
+        # Display the table with HTML formatting
+        st.markdown(df[display_cols].to_html(escape=False, index=False), unsafe_allow_html=True)
+        
+        # After displaying the data, save it to CSV files
+        # Extract product ID from URL or use a random number
+        product_id = re.search(r'/dp/([A-Z0-9]{10})/', link)
+        if product_id:
+            product_id = product_id.group(1)
+        else:
+            product_id = f"{random.randint(1000, 9999)}"
+        
+        # Create timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Save reviews to CSV
+        if reviews:
+            reviews_df = pd.DataFrame(reviews)
+            reviews_filename = f"product_{product_id}_{timestamp}.csv"
+            reviews_filepath = os.path.join(OUTPUT_DIR, reviews_filename)
+            reviews_df.to_csv(reviews_filepath, index=False)
+            print(f"Saved {len(reviews)} reviews to {reviews_filepath}")
+        
+        # Save exact matches to CSV
+        if exact_matches:
+            exact_df = pd.DataFrame(exact_matches)
+            exact_filename = f"product_{product_id}_{timestamp}_exact_match.csv"
+            exact_filepath = os.path.join(OUTPUT_DIR, exact_filename)
+            exact_df.to_csv(exact_filepath, index=False)
+            print(f"Saved {len(exact_matches)} exact matches to {exact_filepath}")
+        
+        # Save alternatives to CSV
+        if alternatives:
+            alt_df = pd.DataFrame(alternatives)
+            alt_filename = f"product_{product_id}_{timestamp}_alternatives.csv"
+            alt_filepath = os.path.join(OUTPUT_DIR, alt_filename)
+            alt_df.to_csv(alt_filepath, index=False)
+            print(f"Saved {len(alternatives)} alternatives to {alt_filepath}")
+
     else:
         st.info("No alternative products found.")
 
 st.markdown("---")
 
-# Sidebar Documentation
-st.sidebar.title("📖 Documentation")
-st.sidebar.markdown("""
-**User Guide:**
-- Enter a product link in the input box.
-- The app will analyze the product's sentiment (dummy model for now).
-- Based on the result, you'll see either cheaper options or alternatives.
-- Results are mock data; integrate real APIs and models as needed.
-
-**Developer Guide:**
-- Replace `predict_sentiment` with your ML model.
-- Replace `search_ecommerce` with real e-commerce API calls.
-- Customize UI and visualizations as needed.
-""")
+# Sidebar - removed documentation
 
 # Footer
 st.markdown(
     '<div class="footer">'
-    'Capstone 2 &copy; 2025 &mdash; Developed by Umar'
+    'Amazon E-Commerce Product Analyzer &copy; 2025 &mdash;'
     '</div>',
     unsafe_allow_html=True
 ) 

@@ -52,11 +52,26 @@ class SentimentAnalyzer:
             probabilities = self.model.predict_proba(X_tfidf)
             
             # Convert predictions back to labels
-            sentiments = self.label_encoder.inverse_transform(predictions)
+            try:
+                # Try to directly map the predictions to labels without using the encoder
+                # This avoids the case sensitivity issue completely
+                sentiments = ['positive' if p == 1 else 'negative' for p in predictions]
+                print(f"Successfully mapped predictions to labels directly")
+            except Exception as e:
+                print(f"Error in direct label mapping: {e}")
+                try:
+                    # Fall back to using the encoder if direct mapping fails
+                    sentiments = self.label_encoder.inverse_transform(predictions)
+                    # Convert all labels to lowercase for consistency
+                    sentiments = [s.lower() if isinstance(s, str) else s for s in sentiments]
+                except Exception as e:
+                    print(f"Error transforming labels with encoder: {e}")
+                    # Last resort fallback
+                    sentiments = ['positive' if p == 1 else 'negative' for p in predictions]
             
-            # Count positive and negative reviews
-            positive_count = sum(1 for s in sentiments if s == 'positive')
-            negative_count = sum(1 for s in sentiments if s == 'negative')
+            # Count positive and negative reviews - ensure case-insensitive comparison
+            positive_count = sum(1 for s in sentiments if str(s).lower() == 'positive')
+            negative_count = sum(1 for s in sentiments if str(s).lower() == 'negative')
             total = positive_count + negative_count
             
             # Calculate overall sentiment score

@@ -117,7 +117,7 @@ def search_products(product_title, max_results=5):
         print(f"Error searching products with SerpApi: {str(e)}")
         return []
 
-def get_product_alternatives(product_title, max_results=5, max_words=7):
+def get_product_alternatives(product_title, max_results=5, max_words=8):
     """
     Get alternative products based on the product title.
     This is the main function to be used by other modules.
@@ -149,7 +149,59 @@ def get_product_alternatives(product_title, max_results=5, max_words=7):
         
     return alternatives
 
-def clean_product_title(title, max_words=7):
+
+def get_exact_and_alternative_products(product_title, max_exact=3, max_alternatives=5, max_words=8):
+    """
+    Get two separate lists: exact product matches and alternative products.
+    
+    Args:
+        product_title (str): The title of the product to search for
+        max_exact (int): Maximum number of exact match results to return
+        max_alternatives (int): Maximum number of alternative results to return
+        max_words (int): Maximum number of words to include in the search query
+        
+    Returns:
+        tuple: (exact_matches, alternatives) - Two lists containing product information
+    """
+    # Clean up the product title for better search results and limit to max_words
+    clean_title = clean_product_title(product_title, max_words)
+    
+    # First search: exact match search with the product title
+    exact_search_query = f'"{clean_title}"'  # Use quotes for exact phrase matching
+    exact_matches = search_products(exact_search_query, max_exact)
+    
+    # Second search: broader search for alternatives
+    # Add terms like "alternative to" or "similar to" to find alternatives
+    alternative_search_query = f"alternatives to {clean_title}"
+    alternatives = search_products(alternative_search_query, max_alternatives)
+    
+    # If no alternatives found, try another approach
+    if not alternatives:
+        alternative_search_query = f"similar to {clean_title}"
+        alternatives = search_products(alternative_search_query, max_alternatives)
+    
+    # If still no alternatives, try with a more generic search
+    if not alternatives and len(clean_title.split()) > 2:
+        # Try with just the first two words of the title plus "alternatives"
+        simplified_title = " ".join(clean_title.split()[:2])
+        alternative_search_query = f"alternatives to {simplified_title}"
+        print(f"No alternatives found. Trying with simplified title: '{alternative_search_query}'")
+        alternatives = search_products(alternative_search_query, max_alternatives)
+    
+    # Remove any duplicates between the two lists (based on product title)
+    if exact_matches and alternatives:
+        exact_titles = {product['title'] for product in exact_matches}
+        alternatives = [product for product in alternatives if product['title'] not in exact_titles]
+    
+    # Ensure we always return lists, even if empty
+    if exact_matches is None:
+        exact_matches = []
+    if alternatives is None:
+        alternatives = []
+        
+    return exact_matches, alternatives
+
+def clean_product_title(title, max_words=8):
     """
     Clean up a product title for better search results and limit to a specified number of words.
     Removes unnecessary information like model numbers, specific details, etc.
@@ -193,10 +245,24 @@ def _test():
     """
     # Test with a sample product title
     product_title = "Apple iPad Pro 12.9-inch (6th Generation): with M2 chip, Liquid Retina XDR Display"
-    print(f"Searching for alternatives to: {product_title}")
+    print(f"Searching for exact matches and alternatives to: {product_title}")
     
-    alternatives = get_product_alternatives(product_title)
+    # Test the new function that returns two separate lists
+    exact_matches, alternatives = get_exact_and_alternative_products(product_title)
     
+    # Display exact matches
+    if exact_matches:
+        print(f"\nFound {len(exact_matches)} exact matches:")
+        for i, product in enumerate(exact_matches, 1):
+            print(f"\n{i}. {product['title']}")
+            print(f"   Price: {product['price']}")
+            print(f"   Source: {product['source']}")
+            print(f"   Rating: {product['rating']} ({product['reviews']} reviews)")
+            print(f"   Link: {product['link']}")
+    else:
+        print("No exact matches found.")
+    
+    # Display alternatives
     if alternatives:
         print(f"\nFound {len(alternatives)} alternatives:")
         for i, product in enumerate(alternatives, 1):
@@ -205,6 +271,17 @@ def _test():
             print(f"   Source: {product['source']}")
             print(f"   Rating: {product['rating']} ({product['reviews']} reviews)")
             print(f"   Link: {product['link']}")
+    else:
+        print("No alternatives found.")
+    
+    print("\n\nTesting original get_product_alternatives function:")
+    alternatives = get_product_alternatives(product_title)
+    
+    if alternatives:
+        print(f"\nFound {len(alternatives)} alternatives:")
+        for i, product in enumerate(alternatives, 1):
+            print(f"\n{i}. {product['title']}")
+            print(f"   Price: {product['price']}")
     else:
         print("No alternatives found.")
 

@@ -54,20 +54,33 @@ class AmazonPriceExtractor:
     
     def start_browser(self):
         """Start the browser with configured options."""
-        from webdriver_manager.chrome import ChromeDriverManager
-        from selenium.webdriver.chrome.service import Service
-        
-        service = Service(ChromeDriverManager().install())
-        self.driver = webdriver.Chrome(service=service, options=self.options)
-        
-        # Set script to override navigator properties to avoid detection
-        self.driver.execute_script("""
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined
-        });
-        """)
-        
-        return self.driver
+        try:
+            from webdriver_manager.chrome import ChromeDriverManager
+            from selenium.webdriver.chrome.service import Service
+            
+            # Use ChromeDriverManager with specific version and cache_valid_range
+            service = Service(ChromeDriverManager(cache_valid_range=30).install())
+            self.driver = webdriver.Chrome(service=service, options=self.options)
+            
+            # Set script to override navigator properties to avoid detection
+            self.driver.execute_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            """)
+            
+            print("Successfully initialized Chrome browser for price extraction")
+            return self.driver
+        except Exception as e:
+            print(f"Error initializing Chrome browser for price extraction: {e}")
+            # Try with a direct path as fallback
+            try:
+                print("Attempting fallback browser initialization...")
+                self.driver = webdriver.Chrome(options=self.options)
+                return self.driver
+            except Exception as e2:
+                print(f"Fallback browser initialization also failed: {e2}")
+                return None
     
     def close_browser(self):
         """Close the browser."""
@@ -191,11 +204,25 @@ def extract_price(url, headless=True):
     Returns:
         float or None: The product price as a float, or None if not found
     """
-    extractor = AmazonPriceExtractor(headless=headless)
+    extractor = None
     try:
-        return extractor.get_product_price(url)
+        extractor = AmazonPriceExtractor(headless=headless)
+        price = extractor.get_product_price(url)
+        if price is not None:
+            return price
+        else:
+            print("Could not extract product price: No price found on the page")
+            return None
+    except Exception as e:
+        print(f"Could not extract product price: {e}")
+        return None
     finally:
-        extractor.close_browser()
+        if extractor:
+            try:
+                extractor.close_browser()
+            except Exception as e:
+                print(f"Error closing browser: {e}")
+                pass
 
 if __name__ == "__main__":
     import argparse
