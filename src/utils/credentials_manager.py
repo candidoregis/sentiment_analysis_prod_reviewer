@@ -2,12 +2,16 @@
 """
 Credentials Manager
 
-This module provides functions to load and save credentials from a JSON file.
+This module provides functions to load and save credentials from environment variables or a JSON file.
 """
 
 import os
 import json
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Get the absolute path to the config directory
 CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..', 'config'))
@@ -15,7 +19,7 @@ DEFAULT_CREDENTIALS_FILE = os.path.join(CONFIG_DIR, "credentials.json")
 
 def load_credentials(site="amazon", credentials_file=DEFAULT_CREDENTIALS_FILE):
     """
-    Load credentials for a specific site from the credentials file.
+    Load credentials for a specific site from environment variables first, then from the credentials file.
     
     Args:
         site (str): The site to load credentials for (default: "amazon")
@@ -25,9 +29,21 @@ def load_credentials(site="amazon", credentials_file=DEFAULT_CREDENTIALS_FILE):
         tuple: (email, password) if found, (None, None) otherwise
     """
     try:
+        # First, try to get credentials from environment variables
+        env_email_key = f"{site.upper()}_EMAIL"
+        env_password_key = f"{site.upper()}_PASSWORD"
+        
+        email = os.environ.get(env_email_key)
+        password = os.environ.get(env_password_key)
+        
+        # If both email and password are found in environment variables, use them
+        if email and password:
+            return email, password
+            
+        # Otherwise, fall back to credentials file
         # Check if credentials file exists
         if not os.path.exists(credentials_file):
-            print(f"Credentials file '{credentials_file}' not found.")
+            print(f"Credentials file '{credentials_file}' not found and no environment variables set.")
             return None, None
         
         # Load credentials from file
@@ -42,12 +58,12 @@ def load_credentials(site="amazon", credentials_file=DEFAULT_CREDENTIALS_FILE):
             
             # Check if credentials are placeholders
             if email == "your_email@example.com" or password == "your_password":
-                print(f"Please update your {site} credentials in '{credentials_file}'")
+                print(f"Please update your {site} credentials in '{credentials_file}' or set environment variables")
                 return None, None
                 
             return email, password
         else:
-            print(f"No credentials found for '{site}' in '{credentials_file}'")
+            print(f"No credentials found for '{site}' in '{credentials_file}' or environment variables")
             return None, None
             
     except Exception as e:

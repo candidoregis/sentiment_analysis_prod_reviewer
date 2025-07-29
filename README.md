@@ -84,7 +84,26 @@ results = analyzer.analyze_reviews(reviews)
 
 ## Configuration
 
-Place your Amazon credentials in `config/credentials.json` in the following format:
+You can provide your Amazon credentials in two ways:
+
+### Option 1: Environment Variables (Recommended)
+
+Create a `.env` file in the project root directory with the following variables:
+
+```
+AMAZON_EMAIL=your-email@example.com
+AMAZON_PASSWORD=your-password
+```
+
+A template file `.env.template` is provided for reference. Copy this file to `.env` and add your credentials:
+
+```bash
+cp .env.template .env
+```
+
+### Option 2: JSON Configuration File
+
+Alternatively, you can place your Amazon credentials in `config/credentials.json` in the following format:
 
 ```json
 {
@@ -94,6 +113,8 @@ Place your Amazon credentials in `config/credentials.json` in the following form
   }
 }
 ```
+
+**Note:** Environment variables take precedence over the JSON configuration file.
 
 ## Dependencies
 
