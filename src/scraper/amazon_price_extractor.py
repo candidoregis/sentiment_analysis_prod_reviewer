@@ -55,12 +55,31 @@ class AmazonPriceExtractor:
     def start_browser(self):
         """Start the browser with configured options."""
         try:
-            from webdriver_manager.chrome import ChromeDriverManager
-            from selenium.webdriver.chrome.service import Service
-            
-            # Use ChromeDriverManager with specific version and cache_valid_range
-            service = Service(ChromeDriverManager(cache_valid_range=30).install())
-            self.driver = webdriver.Chrome(service=service, options=self.options)
+            # Direct approach without ChromeDriverManager
+            try:
+                # First try direct instantiation which works better on newer systems
+                self.driver = webdriver.Chrome(options=self.options)
+                print("Successfully initialized Chrome browser directly")
+            except Exception as direct_error:
+                print(f"Direct Chrome initialization failed: {direct_error}")
+                
+                # Fall back to ChromeDriverManager with explicit options for Mac ARM
+                import platform
+                from selenium.webdriver.chrome.service import Service
+                from webdriver_manager.chrome import ChromeDriverManager
+                from webdriver_manager.core.os_manager import ChromeType
+                
+                # Determine if we're on Mac ARM architecture
+                is_mac_arm = platform.system() == "Darwin" and platform.machine() == "arm64"
+                
+                if is_mac_arm:
+                    print("Detected Mac ARM architecture, using specific driver")
+                    service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+                else:
+                    service = Service(ChromeDriverManager().install())
+                    
+                self.driver = webdriver.Chrome(service=service, options=self.options)
+                print("Successfully initialized Chrome browser with ChromeDriverManager")
             
             # Set script to override navigator properties to avoid detection
             self.driver.execute_script("""

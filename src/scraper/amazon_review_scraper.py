@@ -86,8 +86,31 @@ class AmazonReviewScraper:
     def start_browser(self):
         """Start the browser with configured options."""
         try:
-            self.driver = webdriver.Chrome(options=self.options)
-            print("Successfully initialized Chrome browser")
+            # Direct approach without ChromeDriverManager
+            try:
+                # First try direct instantiation which works better on newer systems
+                self.driver = webdriver.Chrome(options=self.options)
+                print("Successfully initialized Chrome browser directly")
+            except Exception as direct_error:
+                print(f"Direct Chrome initialization failed: {direct_error}")
+                
+                # Fall back to ChromeDriverManager with explicit options for Mac ARM
+                import platform
+                from selenium.webdriver.chrome.service import Service
+                from webdriver_manager.chrome import ChromeDriverManager
+                from webdriver_manager.core.os_manager import ChromeType
+                
+                # Determine if we're on Mac ARM architecture
+                is_mac_arm = platform.system() == "Darwin" and platform.machine() == "arm64"
+                
+                if is_mac_arm:
+                    print("Detected Mac ARM architecture, using specific driver")
+                    service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+                else:
+                    service = Service(ChromeDriverManager().install())
+                    
+                self.driver = webdriver.Chrome(service=service, options=self.options)
+                print("Successfully initialized Chrome browser with ChromeDriverManager")
             
             # Execute CDP commands to prevent detection
             self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -100,7 +123,9 @@ class AmazonReviewScraper:
             
         except Exception as e:
             print(f"Error initializing Chrome: {e}")
-            sys.exit(1)
+            # Don't exit the program, just log the error
+            print("Continuing without browser initialization")
+            return None
             
         return self.driver
     
