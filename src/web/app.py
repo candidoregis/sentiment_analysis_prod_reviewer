@@ -18,7 +18,15 @@ import random
 from datetime import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+import base64
+from pathlib import Path
 import seaborn as sns
+
+# Function to encode the banner image to base64
+def get_base64_encoded_image():
+    banner_path = Path(__file__).parent.parent / 'images' / 'banner.png'
+    with open(banner_path, "rb") as img_file:
+        return base64.b64encode(img_file.read()).decode('utf-8')
 
 # Add the project root to sys.path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -99,25 +107,51 @@ def go_to_results_page():
 
 # Page config is already set at the top of the file
 
+# Get the base64 encoded image for the banner
+banner_image_base64 = get_base64_encoded_image()
+
 # Custom CSS for banner and input styling
 st.markdown(
-    """
+    f"""
     <style>
-    .main-header {
-        background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
+    .main-header {{
+        background-image: url('data:image/png;base64,{banner_image_base64}');
+        background-size: cover;
+        background-position: center;
+        position: relative;
         color: white;
         padding: 2rem 1rem 1rem 1rem;
         border-radius: 10px;
         margin-bottom: 2rem;
         text-align: center;
-    }
-    .stTextInput > div > div > input {
+    }}
+    
+    .main-header::before {{
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0); /* Removed overlay completely to show original image */
+        border-radius: 10px;
+        z-index: 0;
+    }}
+    
+    .main-header h1, .main-header p {{
+        position: relative;
+        z-index: 1;
+        color: white !important;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7); /* Text shadow for better readability */
+        font-weight: bold;
+    }}
+    .stTextInput > div > div > input {{
         background-color: #23272f;
         color: #fff;
         border-radius: 8px;
         border: 1px solid #2a5298;
-    }
-    .footer {
+    }}
+    .footer {{
         position: fixed;
         left: 0;
         bottom: 0;
@@ -127,7 +161,7 @@ st.markdown(
         text-align: center;
         padding: 0.5rem 0;
         font-size: 0.9rem;
-    }
+    }}
     </style>
     """,
     unsafe_allow_html=True
@@ -166,9 +200,9 @@ def input_page():
     # Banner/Header
     st.markdown(
         '<div class="main-header">'
-        '<h1>E-commerce Product Analyzer</h1>'
-        '<p style="font-size:1.2rem;">'
-        'Analyze product sentiment and discover the best shopping options!'
+        '<h1>E-Commerce Product Analyzer</h1>'
+        '<p style="font-size:1.5rem;">'
+        'Amazon Review Insights & Cheaper Alternatives Finder'
         '</p>'
         '</div>',
         unsafe_allow_html=True
@@ -178,7 +212,9 @@ def input_page():
     st.markdown(
         """
         <div style='text-align:center;'>
-        <span style='font-size:1.5rem;'>Paste a product link below to get started!</span>
+        <span style='font-size:1.2rem;'>Unlock the Power of Amazon Reviews with AI-Driven Sentiment Analysis.</span>
+        <br>
+        <span style='font-size:1.2rem;'>Paste a product link below to get started!</span>
         </div>
         """,
         unsafe_allow_html=True
@@ -217,9 +253,9 @@ def results_page():
     # Banner/Header
     st.markdown(
         '<div class="main-header">'
-        '<h1>E-commerce Product Analyzer</h1>'
-        '<p style="font-size:1.2rem;">'
-        'Analysis Results'
+        '<h1>E-Commerce Product Analyzer</h1>'
+        '<p style="font-size:1.5rem;">'
+        'Amazon Review Insights & Cheaper Alternatives Finder'
         '</p>'
         '</div>',
         unsafe_allow_html=True
@@ -322,7 +358,7 @@ def results_page():
     max_alternatives = 10
     
     if sentiment == "positive":
-        st.success(f"This product is recommended! Here's the best value similar option:")
+        st.success(f"This product is recommended! Here's the best value for this product:")
         display_max = 1  # Only show 1 result for positive sentiment
     else:
         st.warning(f"This product may not be ideal. Consider these alternatives:")
@@ -331,14 +367,11 @@ def results_page():
     # Get product title from the first review or fallback
     raw_title = reviews[0].get('product_title', '') if reviews and 'product_title' in reviews[0] else "Amazon Product"
     
-    # Note: product_price is already extracted earlier in the code
-    # We don't need to extract it from reviews anymore
-    
     # Simplify the product title (take first part before colon, dash, or parenthesis)
     match = re.split(r'[:\-\(]', raw_title)
     simple_title = match[0].strip() if match else raw_title.strip()
     if not simple_title:
-        simple_title = "Apple iPad"
+        simple_title = "Product Name"
         
     # Get both exact matches and alternatives using our new function
     with st.spinner("Searching for product alternatives..."):
@@ -395,9 +428,9 @@ def results_page():
         elif exact_matches:
             # If we have exact matches but no product price, just take the first one
             display_products = [exact_matches[0]]
-        elif alternatives:
-            # If no exact matches but we have alternatives, take the first alternative
-            display_products = [alternatives[0]]
+        else:
+            # If no exact matches, display a message
+            st.warning("No exact product matches found. Please try a different product.")
     else:  # negative sentiment
         # For negative sentiment: select 5 items from alternatives with prices closest to original
         if alternatives and product_price is not None:
@@ -423,14 +456,13 @@ def results_page():
         elif alternatives:
             # If we have alternatives but no product price, just take the first few
             display_products = alternatives[:display_max]
-        elif exact_matches:
-            # If no alternatives but we have exact matches, use those
-            display_products = exact_matches[:display_max]
+        else:
+            # If no alternatives, display a message
+            st.warning("No alternative products found. Please try a different product.")
     
-    # If we still don't have any products to display, use a combination of both lists
+    # If we still don't have any products to display, show a message
     if not display_products:
-        combined = exact_matches + alternatives
-        display_products = combined[:display_max]
+        st.error("No products available to display. Please try a different product or search term.")
         
     # Display results
     if display_products:
@@ -448,6 +480,20 @@ def results_page():
             df['link'] = df['link'].apply(lambda x: f"[View Product]({x})" if x and x != "No link available" else "No link available")
         
         # Select and reorder columns for display
+        # Map the actual column names from the DataFrame to display names
+        column_mapping = {
+            'title': 'Product',
+            'price': 'Price',
+            'source': 'Source',
+            'rating': 'Rating',
+            'reviews': 'Reviews',
+            'link': 'Link'
+        }
+        
+        # Rename the columns to match the display names
+        df = df.rename(columns=column_mapping)
+        
+        # Select columns for display
         display_cols = ['Product', 'Price', 'Source', 'Rating', 'Reviews', 'Link']
         display_cols = [col for col in display_cols if col in df.columns]
         
@@ -540,7 +586,7 @@ def main():
             background-color: #f5f5f5;
         }
         .main-header {
-            background: linear-gradient(90deg, #4b6cb7 0%, #182848 100%);
+            /* Removed background gradient to allow the image to show */
             color: white;
             padding: 2rem 1rem 1rem 1rem;
             border-radius: 10px;
