@@ -1,12 +1,24 @@
 import streamlit as st
+
+# Set page config for custom title and icon - MUST be the first Streamlit command
+st.set_page_config(
+    page_title="E-commerce Product Analyzer",
+    page_icon="🛒",
+    layout="wide"
+)
+
 import pandas as pd
 import plotly.express as px
 import sys
 import os
 import re
+import json
 import time
 import random
 from datetime import datetime
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Add the project root to sys.path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -23,6 +35,22 @@ from src.api.serp_api_integration import get_exact_and_alternative_products
 
 # Initialize the sentiment analyzer
 analyzer = SentimentAnalyzer()
+
+# Initialize session state variables
+if 'page' not in st.session_state:
+    st.session_state.page = 'input'
+if 'stored_link' not in st.session_state:
+    st.session_state.stored_link = ''
+if 'analysis_complete' not in st.session_state:
+    st.session_state.analysis_complete = False
+if 'reviews' not in st.session_state:
+    st.session_state.reviews = []
+if 'analysis_results' not in st.session_state:
+    st.session_state.analysis_results = None
+if 'loading' not in st.session_state:
+    st.session_state.loading = False
+if 'product_price' not in st.session_state:
+    st.session_state.product_price = None
 
 def predict_sentiment_from_reviews(reviews):
     """
@@ -55,12 +83,21 @@ def search_ecommerce(product_link, sentiment):
     # The actual implementation is now in serp_api_integration.py
     return []
 
-# Set page config for custom title and icon
-st.set_page_config(
-    page_title="E-commerce Product Analyzer",
-    page_icon="🛒",
-    layout="wide"
-)
+# Navigation functions
+def reset_session_state():
+    """Reset all processing-related session state variables"""
+    st.session_state.analysis_complete = False
+    st.session_state.reviews = []
+    st.session_state.loading = False
+
+def go_to_input_page():
+    st.session_state.page = 'input'
+    reset_session_state()
+
+def go_to_results_page():
+    st.session_state.page = 'results'
+
+# Page config is already set at the top of the file
 
 # Custom CSS for banner and input styling
 st.markdown(
@@ -96,82 +133,189 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Banner/Header
-st.markdown(
-    '<div class="main-header">'
-    '<h1>🛒 E-commerce Product Analyzer</h1>'
-    '<p style="font-size:1.2rem;">'
-    'Analyze product sentiment and discover the best shopping options!'
-    '</p>'
-    '</div>',
-    unsafe_allow_html=True
-)
-
-# Description with icon
-st.markdown(
-    """
-    <div style='text-align:center;'>
-    <span style='font-size:1.5rem;'>🔗 Paste a product link below to get started!</span>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-st.markdown("---")
-
-# Input section
-link = st.text_input("Enter product link:", key="product_link")
-
-if link:
-    # Extract product price first (silently, without displaying)
+def process_product_link(link):
+    """Process the product link and perform all data gathering operations"""
+    # Extract product price
     try:
         product_price = extract_price(link)
+        st.session_state.product_price = product_price
     except Exception as e:
-        print(f"Could not extract product price: {e}")
-        product_price = None
+        st.error(f"Could not extract product price: {e}")
+        st.session_state.product_price = None
     
-    # Then scrape reviews
-    with st.spinner("Scraping Amazon reviews (up to 5 pages)..."):
-        try:
-            scraper = AmazonReviewScraper(headless=True)
-            reviews = scraper.get_reviews(link, max_pages=5, max_reviews=50)
-            scraper.close_browser()
-        except Exception as e:
-            st.error(f"Error scraping reviews: {e}")
-            reviews = []
-    if reviews:
-        st.markdown("---")
-        st.subheader("📝 Sample Reviews")
-        for i, review in enumerate(reviews[:5]):
-            st.write(f"**Review {i+1}:** {review.get('body', '')}")
+    # Scrape reviews
+    try:
+        scraper = AmazonReviewScraper(headless=True)
+        reviews = scraper.get_reviews(link, max_pages=5, max_reviews=50)
+        scraper.close_browser()
+    except Exception as e:
+        st.error(f"Error scraping reviews: {e}")
+        reviews = []
+    
+    # Store results in session state
+    st.session_state.reviews = reviews
+    
+    # Set loading to False and go to results page
+    st.session_state.loading = False
+    st.session_state.page = 'results'
+    
+    # Force a rerun to update the UI
+    st.rerun()
+
+def input_page():
+    # Banner/Header
+    st.markdown(
+        '<div class="main-header">'
+        '<h1>E-commerce Product Analyzer</h1>'
+        '<p style="font-size:1.2rem;">'
+        'Analyze product sentiment and discover the best shopping options!'
+        '</p>'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    # Description with icon
+    st.markdown(
+        """
+        <div style='text-align:center;'>
+        <span style='font-size:1.5rem;'>Paste a product link below to get started!</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown("---")
+
+    # Input section
+    link = st.text_input("Enter product link:", key="product_link")
+    
+    # Center the submit button
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        analyze_clicked = st.button("Analyze Product", use_container_width=True)
+    
+    if analyze_clicked:
+        if link:
+            # Store the link and set loading state
+            st.session_state.stored_link = link
+            st.session_state.loading = True
+        else:
+            st.error("Please enter a product link first.")
+    
+    # If loading is True, show loading spinner and process the link
+    if st.session_state.loading:
+        with st.spinner("Processing your request... This may take a minute."):
+            # Process the link
+            process_product_link(st.session_state.stored_link)
+
+def results_page():
+    # Get data from session state
+    link = st.session_state.stored_link
+    reviews = st.session_state.reviews
+    product_price = st.session_state.product_price
+    
+    # Banner/Header
+    st.markdown(
+        '<div class="main-header">'
+        '<h1>E-commerce Product Analyzer</h1>'
+        '<p style="font-size:1.2rem;">'
+        'Analysis Results'
+        '</p>'
+        '</div>',
+        unsafe_allow_html=True
+    )
+    
+    # Display a message if no reviews were found
+    if not reviews:
+        st.warning("No reviews were found for this product.")
+        sentiment = "neutral"
+        score = 0.5
+        pos_count = 0
+        neg_count = 0
+        detailed_results = []
+        model_name = "No reviews available"
+    else:
         # Run sentiment analysis on reviews
         sentiment, score, pos_count, neg_count, detailed_results, model_name = predict_sentiment_from_reviews(reviews)
-    else:
-        st.warning("No reviews found or failed to scrape reviews.")
-        sentiment, score, pos_count, neg_count, detailed_results, model_name = "neutral", 0.5, 0, 0, [], "No Model"
     st.markdown("---")
-    st.subheader("📊 Sentiment Analysis Result")
+    st.subheader("Sentiment Analysis Result")
     st.write(f"**Model Used:** {model_name}")
-    st.write(f"**Sentiment:** :{'smile:' if sentiment=='positive' else 'disappointed:'} {sentiment.capitalize()} (Score: {score:.2f})")
+    st.write(f"**Sentiment:** {sentiment.capitalize()} (Score: {score:.2f})")
     st.write(f"**Positive mentions:** {pos_count} | **Negative mentions:** {neg_count}")
     
     if 'avg_confidence' in st.session_state:
         st.write(f"**Average Confidence:** {st.session_state['avg_confidence']}")
 
+    # Display sentiment distribution and summary side by side
+    col1, col2 = st.columns(2)
+    
+    # Display sentiment distribution
+    with col1:
+        # Create a pie chart of sentiment distribution
+        sentiment_counts = {'Positive': pos_count, 'Negative': neg_count}
+        fig = px.pie(
+            values=list(sentiment_counts.values()),
+            names=list(sentiment_counts.keys()),
+            title='Sentiment Distribution',
+            color_discrete_map={'Positive': '#4b6cb7', 'Negative': '#ff4b4b'},
+            color_discrete_sequence=['#ff4b4b', '#4b6cb7'],  # Force color sequence
+            hole=0.4
+        )
+        # Update all text elements to ensure visibility
+        fig.update_traces(
+            textfont_color='white',
+            textfont_size=14,
+            textposition='inside',
+            insidetextorientation='horizontal'
+        )
+        fig.update_layout(
+            margin=dict(l=20, r=20, t=40, b=20),
+            height=300,
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            font_color='#333333',
+            title_font_color='#333333',
+            title_font_size=16,
+            legend=dict(
+                font=dict(color='#333333', size=12),
+                bgcolor='rgba(255,255,255,0.8)',
+                bordercolor='#dddddd'
+            )
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Display sentiment summary
+    with col2:
+        st.markdown(f"**Total Reviews Analyzed:** {len(reviews)}")
+        st.markdown(f"**Positive Reviews:** {pos_count} ({pos_count/len(reviews)*100 if reviews else 0:.1f}%)")
+        st.markdown(f"**Negative Reviews:** {neg_count} ({neg_count/len(reviews)*100 if reviews else 0:.1f}%)")
+        
+        # Display overall sentiment
+        st.markdown("### Overall Sentiment")
+        if sentiment == "positive":
+            st.markdown("<div style='background-color:#4b6cb7; color:white; padding:10px; border-radius:5px;'>Positive</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div style='background-color:#ff4b4b; color:white; padding:10px; border-radius:5px;'>Negative</div>", unsafe_allow_html=True)
+
     # Show detailed sentiment analysis
-    st.subheader("📊 Detailed Sentiment Analysis")
+    st.subheader("Detailed Sentiment Analysis")
     
-    # Show sentiment distribution
-    if 'sentiment_distribution' in st.session_state:
-        st.plotly_chart(st.session_state['sentiment_distribution'], use_container_width=True)
+    # Create two columns for the charts
+    col1, col2 = st.columns(2)
     
-    # Show sentiment score gauge
-    if 'sentiment_score' in st.session_state:
-        st.plotly_chart(st.session_state['sentiment_score'], use_container_width=True)
+    # Show ratings distribution (original ratings 1-5 stars)
+    with col1:
+        if 'sentiment_score' in st.session_state:
+            st.plotly_chart(st.session_state['sentiment_score'], use_container_width=True)
+    
+    # Show sentiment distribution (positive/negative)
+    with col2:
+        if 'sentiment_distribution' in st.session_state:
+            st.plotly_chart(st.session_state['sentiment_distribution'], use_container_width=True)
     
     # Product recommendations using SerpApi
     st.markdown("---")
-    st.subheader("\U0001F4A1 Product Recommendations")
+    st.subheader("Product Recommendations")
     
     # Determine how many products to display based on sentiment
     max_exact = 10  # Request more results to have more options for filtering
@@ -304,11 +448,31 @@ if link:
             df['link'] = df['link'].apply(lambda x: f"[View Product]({x})" if x and x != "No link available" else "No link available")
         
         # Select and reorder columns for display
-        display_cols = ['title', 'price', 'source', 'rating', 'reviews', 'link']
+        display_cols = ['Product', 'Price', 'Source', 'Rating', 'Reviews', 'Link']
         display_cols = [col for col in display_cols if col in df.columns]
         
-        # Display the table with HTML formatting
-        st.markdown(df[display_cols].to_html(escape=False, index=False), unsafe_allow_html=True)
+        # Display the table with HTML formatting and improved styling
+        styled_table = df[display_cols].to_html(escape=False, index=False)
+        
+        # Apply custom CSS to make the table more visible and centered
+        styled_table = f"""
+        <div style="display: flex; justify-content: center; margin: 20px 0;">
+            <div style="width: 95%; max-width: 1000px;">
+                <style>
+                    table {{width: 100%; border-collapse: collapse; margin: 25px 0; font-size: 16px; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);}}
+                    th {{background-color: #4b6cb7; color: white; text-align: center; padding: 12px 15px; font-weight: bold;}}
+                    td {{padding: 12px 15px; text-align: center; border-bottom: 1px solid #dddddd;}}
+                    tr:nth-child(even) {{background-color: #f8f8f8;}}
+                    tr:hover {{background-color: #f1f1f1;}}
+                    a {{color: #4b6cb7; text-decoration: none; font-weight: bold;}}
+                    a:hover {{text-decoration: underline;}}
+                </style>
+                {styled_table}
+            </div>
+        </div>
+        """
+        
+        st.markdown(styled_table, unsafe_allow_html=True)
         
         # After displaying the data, save it to CSV files
         # Extract product ID from URL or use a random number
@@ -347,15 +511,113 @@ if link:
 
     else:
         st.info("No alternative products found.")
+    
+    # Try Again button at the bottom and centered
+    st.markdown("---")
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("Try Another Product", key="try_again_bottom", use_container_width=True):
+            # Clear all session state variables
+            for key in list(st.session_state.keys()):
+                if key != 'page':  # Keep the page key
+                    del st.session_state[key]
+            # Set page to input
+            st.session_state.page = 'input'
+            # Force rerun to refresh the page immediately
+            st.rerun()
 
-st.markdown("---")
+# Main function to manage page navigation
+def main():
+    # Apply custom CSS for white/blueish theme with light gray background
+    st.markdown(
+        """
+        <style>
+        body {
+            background-color: #f5f5f5;
+        }
+        .stApp {
+            background-color: #f5f5f5;
+        }
+        .main-header {
+            background: linear-gradient(90deg, #4b6cb7 0%, #182848 100%);
+            color: white;
+            padding: 2rem 1rem 1rem 1rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .stTextInput > div > div > input {
+            background-color: #ffffff;
+            color: #212529;
+            border-radius: 8px;
+            border: 1px solid #4b6cb7;
+        }
+        .stButton > button {
+            background-color: #4b6cb7;
+            color: white;
+            border-radius: 8px;
+            border: none;
+            padding: 0.5rem 1rem;
+            font-weight: 500;
+            width: 50% !important;
+            margin: 0 auto;
+            display: block;
+        }
+        .stButton > button:hover {
+            background-color: #3a5795;
+        }
+        .footer {
+            position: fixed;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            background: #f0f0f0;
+            color: #6c757d;
+            text-align: center;
+            padding: 0.5rem 0;
+            font-size: 0.9rem;
+            border-top: 1px solid #e9ecef;
+        }
+        .stSpinner > div > div > div {
+            border-color: #4b6cb7 #4b6cb7 transparent !important;
+        }
+        .stProgress > div > div > div {
+            background-color: #4b6cb7 !important;
+        }
+        .stAlert > div {
+            border-radius: 8px;
+            border-left-color: #4b6cb7 !important;
+        }
+        h1, h2, h3, h4, h5, h6, p, span, div, label, .stMarkdown {
+            color: #333333 !important;
+        }
+        .stDataFrame {
+            color: #333333;
+        }
+        .stTable {
+            color: #333333;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    # Display the appropriate page based on session state
+    if st.session_state.page == 'input':
+        input_page()
+    else:
+        results_page()
+    
+    # Footer
+    st.markdown(
+        '<div class="footer">'
+        'Amazon E-Commerce Product Analyzer &copy; 2025'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
-# Sidebar - removed documentation
-
-# Footer
-st.markdown(
-    '<div class="footer">'
-    'Amazon E-Commerce Product Analyzer &copy; 2025 &mdash;'
-    '</div>',
-    unsafe_allow_html=True
-) 
+# Run the main function
+if __name__ == "__main__":
+    main()
